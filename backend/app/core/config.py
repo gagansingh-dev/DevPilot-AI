@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int
 
     DATABASE_URL: str
+    GEMINI_API_KEY: str
+    GITHUB_TOKEN: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
