@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 
 from app.core.config import settings
@@ -58,17 +60,17 @@ async def get_repository_languages(owner: str, repo: str) -> dict:
 
 async def get_github_languages(username: str) -> dict:
     repositories = await get_github_repositories(username)
+    semaphore = asyncio.Semaphore(5)
 
+    async def fetch_languages(repo: dict) -> dict:
+        async with semaphore:
+            return await get_repository_languages(username, repo["name"])
+
+    repository_languages = await asyncio.gather(
+        *(fetch_languages(repo) for repo in repositories)
+    )
     language_totals = {}
-
-    for repo in repositories:
-        repo_name = repo["name"]
-
-        languages = await get_repository_languages(
-            username,
-            repo_name,
-        )
-
+    for languages in repository_languages:
         for language, bytes_count in languages.items():
             language_totals[language] = (
                 language_totals.get(language, 0) + bytes_count
@@ -126,56 +128,46 @@ async def get_repository_details(owner: str, repo: str) -> dict:
 
 async def get_github_repository_details(username: str) -> list:
     repositories = await get_github_repositories(username)
+    semaphore = asyncio.Semaphore(5)
 
-    repository_details = []
-
-    for repo in repositories:
+    async def fetch_repository_details(repo: dict) -> dict:
         repo_name = repo["name"]
+        async with semaphore:
+            details, has_readme, recent_commits = await asyncio.gather(
+                get_repository_details(username, repo_name),
+                get_repository_readme(username, repo_name),
+                get_repository_commits(username, repo_name),
+            )
+            file_evidence = await get_repository_file_evidence(
+                username,
+                repo_name,
+                details["default_branch"],
+            )
 
-        details = await get_repository_details(
-            username,
-            repo_name,
-        )
+        return {
+            "name": details["name"],
+            "description": details["description"],
+            "stars": details["stargazers_count"],
+            "forks": details["forks_count"],
+            "language": details["language"],
+            "size": details["size"],
+            "default_branch": details["default_branch"],
+            "topics": details.get("topics", []),
+            "has_readme": has_readme,
+            "has_issues": details["has_issues"],
+            "open_issues": details["open_issues_count"],
+            "created_at": details["created_at"],
+            "updated_at": details["updated_at"],
+            "pushed_at": details["pushed_at"],
+            "url": details["html_url"],
+            "file_count": len(file_evidence.get("files", [])),
+            "file_evidence": file_evidence,
+            "recent_commits": recent_commits,
+        }
 
-        has_readme = await get_repository_readme(
-            username,
-            repo_name,
-        )
-
-        file_count = await get_repository_file_count(
-            username,
-            repo_name,
-            details["default_branch"],
-        )
-
-        recent_commits = await get_repository_commits(
-            username,
-            repo_name,
-        )
-
-        repository_details.append(
-            {
-                "name": details["name"],
-                "description": details["description"],
-                "stars": details["stargazers_count"],
-                "forks": details["forks_count"],
-                "language": details["language"],
-                "size": details["size"],
-                "default_branch": details["default_branch"],
-                "topics": details.get("topics", []),
-                "has_readme": has_readme,
-                "has_issues": details["has_issues"],
-                "open_issues": details["open_issues_count"],
-                "created_at": details["created_at"],
-                "updated_at": details["updated_at"],
-                "pushed_at": details["pushed_at"],
-                "url": details["html_url"],
-                "file_count": file_count,
-                "recent_commits": recent_commits,
-            }
-        )
-
-    return repository_details
+    return await asyncio.gather(
+        *(fetch_repository_details(repo) for repo in repositories)
+    )
 
 
 async def get_repository_readme(owner: str, repo: str) -> bool:
@@ -197,8 +189,9 @@ async def get_repository_readme_content(
     url = f"{GITHUB_API_URL}/repos/{owner}/{repo}/readme"
 
     async with httpx.AsyncClient(
-        headers=GITHUB_HEADERS
-    ) as client:
+    headers=GITHUB_HEADERS,
+    timeout=10.0
+) as client:
         response = await client.get(url)
 
     if response.status_code in (404, 409):
@@ -420,17 +413,19 @@ async def get_repository_dependency_evidence(
     owner: str,
     repo: str,
     branch: str,
+    file_evidence: dict | None = None,
 ) -> dict:
     """
     Read important dependency/configuration files
     from a repository and return their contents.
     """
 
-    file_evidence = await get_repository_file_evidence(
-        owner,
-        repo,
-        branch,
-    )
+    if file_evidence is None:
+        file_evidence = await get_repository_file_evidence(
+            owner,
+            repo,
+            branch,
+        )
 
     files = file_evidence.get(
         "files",

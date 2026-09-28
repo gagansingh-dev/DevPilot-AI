@@ -1,4 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-background: #10131a;
+  --color-on-background: #e3e2e9;
+  --color-surface-container: #181c24;
+  --color-surface-container-high: #202530;
+  --color-surface-container-highest: #2a303d;
+  --color-on-surface-variant: #b6bdca;
+  --color-primary: #a6baff;
+  --color-on-primary: #10182f;
+  --color-outline-variant: #3a4250;
+  --color-error: #ffb4ab;
+}
 
 :root {
   font-family: "Space Grotesk", sans-serif;

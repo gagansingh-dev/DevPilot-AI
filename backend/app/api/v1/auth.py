@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.security import (
@@ -22,6 +23,17 @@ def register_user(
     user: UserCreate,
     db: Session = Depends(get_db),
 ):
+    existing_user = (
+        db.query(User)
+        .filter(or_(User.email == user.email, User.username == user.username))
+        .first()
+    )
+    if existing_user:
+        raise HTTPException(
+            status_code=409,
+            detail="That email or username is already registered.",
+        )
+
     hashed_password = hash_password(user.password)
 
     new_user = User(

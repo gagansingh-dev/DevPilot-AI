@@ -21,6 +21,28 @@ UPLOAD_DIR = Path("uploads/resumes")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
+@router.get("/latest")
+def get_latest_resume(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    resume = (
+        db.query(Resume)
+        .filter(Resume.user_id == current_user.id)
+        .order_by(Resume.created_at.desc())
+        .first()
+    )
+    if not resume:
+        raise HTTPException(status_code=404, detail="No resume uploaded yet.")
+
+    return {
+        "id": resume.id,
+        "file_name": resume.file_name,
+        "status": resume.status,
+        "created_at": resume.created_at,
+    }
+
+
 @router.post("/upload")
 async def upload_resume(
     file: UploadFile = File(...),

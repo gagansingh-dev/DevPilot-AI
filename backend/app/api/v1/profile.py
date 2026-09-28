@@ -45,6 +45,7 @@ def create_profile(
         experience_level=profile.experience_level,
         bio=profile.bio,
         skills=profile.skills,
+        github_username=profile.github_username,
     )
 
     db.add(new_profile)
@@ -103,6 +104,7 @@ def update_profile(
     profile.experience_level = profile_data.experience_level
     profile.bio = profile_data.bio
     profile.skills = profile_data.skills
+    profile.github_username = profile_data.github_username
 
     db.commit()
     db.refresh(profile)

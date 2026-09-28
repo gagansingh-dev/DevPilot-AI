@@ -46,6 +46,11 @@ class UserProfile(Base):
         nullable=True
     )
 
+    github_username: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow

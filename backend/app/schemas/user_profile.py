@@ -7,6 +7,10 @@ class UserProfileCreate(BaseModel):
     experience_level: str = Field(..., min_length=2, max_length=50)
     bio: str | None = None
     skills: str | None = None
+    github_username: str | None = Field(
+        default=None,
+        max_length=100
+    )
 
 
 class UserProfileResponse(BaseModel):
@@ -17,6 +21,7 @@ class UserProfileResponse(BaseModel):
     experience_level: str
     bio: str | None
     skills: str | None
+    github_username: str | None
 
     class Config:
         from_attributes = True

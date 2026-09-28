@@ -1,3 +1,6 @@
+import asyncio
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from app.services.github_service import (
@@ -24,6 +27,8 @@ router = APIRouter(
     prefix="/github",
     tags=["GitHub"],
 )
+
+logger = logging.getLogger(__name__)
 
 
 @router.get("/user/{username}")
@@ -203,45 +208,59 @@ async def github_analysis(
     try:
         repositories = await get_github_repository_details(username)
 
-        detailed_repositories = []
+        semaphore = asyncio.Semaphore(4)
 
-        for repo in repositories:
-            repo_name = repo["name"]
-            default_branch = repo["default_branch"]
+        async def enrich_repository(repo: dict) -> dict:
+            async with semaphore:
+                repo_name = repo["name"]
+                branch = repo["default_branch"]
 
-            readme_content = await get_repository_readme_content(
-                username,
-                repo_name,
-            )
+                async def load_file_evidence() -> dict:
+                    existing = repo.get("file_evidence")
+                    if existing is not None:
+                        return existing
+                    return await get_repository_file_evidence(
+                        username,
+                        repo_name,
+                        branch,
+                    )
 
-            file_evidence = await get_repository_file_evidence(
-                username,
-                repo_name,
-                default_branch,
-            )
+                readme_content, file_evidence = await asyncio.gather(
+                    get_repository_readme_content(username, repo_name),
+                    load_file_evidence(),
+                )
+                dependency_evidence = await get_repository_dependency_evidence(
+                    username,
+                    repo_name,
+                    branch,
+                    file_evidence=file_evidence,
+                )
+                recent_commits = repo.get("recent_commits")
+                if not isinstance(recent_commits, int):
+                    recent_commits = await get_repository_commits(
+                        username,
+                        repo_name,
+                    )
+                return {
+                    **repo,
+                    "recent_commits": recent_commits,
+                    "readme_content": readme_content,
+                    "file_evidence": file_evidence,
+                    "dependency_evidence": dependency_evidence,
+                    "has_readme": bool(readme_content) or repo.get("has_readme", False),
+                }
 
-            dependency_evidence = await get_repository_dependency_evidence(
-                username,
-                repo_name,
-                default_branch,
-)
-            detailed_repositories.append({
-                **repo,
-                "readme_content": readme_content,
-                "file_evidence": file_evidence,
-                "dependency_evidence": dependency_evidence,
-            })
+        detailed_repositories = await asyncio.gather(
+            *(enrich_repository(repo) for repo in repositories)
+        )
 
         languages = await get_github_languages(username)
-
         activity = await get_github_activity(username)
-
         analysis = analyze_github_profile(
             repositories=detailed_repositories,
             languages=languages,
             activity=activity,
         )
-
         career_relevance = calculate_career_relevance(
             career_goal=career_goal,
             languages=languages,
@@ -261,7 +280,8 @@ async def github_analysis(
         )
 
     except Exception as e:
+        logger.exception("GitHub analysis failed for username %s", username)
         raise HTTPException(
             status_code=500,
-            detail=f"{type(e).__name__}: {repr(e)}",
-        )
+            detail="Unable to analyze this GitHub profile right now.",
+        ) from e
